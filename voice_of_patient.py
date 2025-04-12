@@ -1,39 +1,54 @@
 import logging
 import os
 import subprocess
-import time
 import speech_recognition as sr
+import time
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Step 1: Record only if user starts speaking within 5 seconds
 def record_audio_wav(temp_wav_path="temp_patient_audio.wav", wait_for_speech=5):
-    recognizer = sr.Recognizer()
+    """
+    Records audio from the microphone, saving it to a WAV file only if speech is detected.
 
+    Args:
+        temp_wav_path (str): Path to save the temporary WAV file.
+        wait_for_speech (int): Max seconds to wait for user speech.
+    
+    Returns:
+        bool: True if recording happened, False if no speech detected.
+    """
+    recognizer = sr.Recognizer()
     try:
         with sr.Microphone() as source:
+            logging.info("Preparing microphone... Hold on.")
+            time.sleep(1)  # Warm up the mic before starting to listen
+            recognizer.adjust_for_ambient_noise(source, duration=1.5)
             logging.info("Listening for your voice... Speak within 5 seconds or recording will stop.")
-
-            recognizer.adjust_for_ambient_noise(source, duration=1)
 
             try:
                 audio_data = recognizer.listen(source, timeout=wait_for_speech, phrase_time_limit=10)
                 with open(temp_wav_path, "wb") as f:
                     f.write(audio_data.get_wav_data())
                 logging.info(f"Audio recorded and saved to {temp_wav_path}")
-                return True  # Recording succeeded
+                return True
 
             except sr.WaitTimeoutError:
                 logging.warning("No speech detected within the wait time. Stopping.")
-                return False  # No speech
+                return False
 
     except Exception as e:
         logging.error(f"An error occurred during recording: {e}")
         return False
 
-# Step 2: Convert WAV to MP3 using ffmpeg
 def convert_wav_to_mp3(input_wav_path, output_mp3_path):
+    """
+    Converts a WAV file to MP3 format using FFmpeg.
+
+    Args:
+        input_wav_path (str): Input WAV file path.
+        output_mp3_path (str): Output MP3 file path.
+    """
     try:
         command = [
             "ffmpeg",
@@ -50,8 +65,18 @@ def convert_wav_to_mp3(input_wav_path, output_mp3_path):
     except subprocess.CalledProcessError as e:
         logging.error(f"FFmpeg error: {e}")
 
-# Step 3: Transcribe using Groq STT
 def transcribe_with_groq(stt_model, audio_filepath, groq_api_key):
+    """
+    Transcribes audio using Groq's Whisper model.
+
+    Args:
+        stt_model (str): Model name for STT.
+        audio_filepath (str): Path to the audio file.
+        groq_api_key (str): Groq API Key.
+
+    Returns:
+        str: Transcription text.
+    """
     from groq import Groq
     client = Groq(api_key=groq_api_key)
 
@@ -62,24 +87,3 @@ def transcribe_with_groq(stt_model, audio_filepath, groq_api_key):
             language="en"
         )
     return transcription.text
-
-# ===== Main Execution =====
-if __name__ == "__main__":
-    GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-    stt_model = "whisper-large-v3"
-
-    # File paths
-    wav_path = "temp_patient_audio.wav"
-    mp3_path = "patient_voice_test_for_patient.mp3"
-
-    # Start recording
-    recorded = record_audio_wav(temp_wav_path=wav_path, wait_for_speech=5)
-
-    if recorded:
-        convert_wav_to_mp3(input_wav_path=wav_path, output_mp3_path=mp3_path)
-        transcription_text = transcribe_with_groq(stt_model, mp3_path, GROQ_API_KEY)
-
-        print("\n--- Transcription Output ---")
-        print(transcription_text)
-    else:
-        print("\n⚠️ No speech detected. Try again.")
